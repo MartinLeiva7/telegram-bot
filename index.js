@@ -23,7 +23,7 @@ async function registrarGasto(ctx, monto, concepto) {
     const sheet = doc.sheetsByIndex[0]; // La primera pestaña
     
     await sheet.addRow({
-      Fecha: new Date().toLocaleString('es-AR'), // Ajusta tu zona horaria
+      Fecha: new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }), // Ajusta tu zona horaria
       Monto: monto,
       Concepto: concepto
     });
