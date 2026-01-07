@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/MartinLeiva7/telegram-bot#readme",
   "dependencies": {
+    "google-auth-library": "^10.5.0",
     "google-spreadsheet": "^5.0.2",
     "telegraf": "^4.16.3"
   }
