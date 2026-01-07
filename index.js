@@ -51,3 +51,10 @@ bot.on('text', async (ctx) => {
 
 bot.launch();
 console.log('Bot en marcha...');
+
+// Mini servidor para que Koyeb crea que es una web y pase el Health Check
+const http = require('http');
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('Bot vivo');
+}).listen(process.env.PORT || 8000);
