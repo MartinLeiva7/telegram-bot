@@ -20,78 +20,6 @@ const bot = new Telegraf(BOT_TOKEN);
 // Objeto para guardar temporalmente el gasto antes de elegir categoría
 const temporalGasto = new Map();
 
-bot.on("text", async (ctx) => {
-  const mensaje = ctx.message.text;
-  const partes = mensaje.split(" ");
-
-  if (partes.length >= 2 && !isNaN(partes[0].replace(",", "."))) {
-    const monto = partes[0];
-    const concepto = partes.slice(1).join(" ");
-
-    // Guardamos los datos temporalmente usando el ID del usuario como llave
-    temporalGasto.set(ctx.from.id, { monto, concepto });
-
-    // Enviamos los botones
-    await ctx.reply(`¿En qué categoría guardamos los $${monto}?`, {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "🛒 Super", callback_data: "cat_Supermercado" },
-            { text: "🍔 Comida", callback_data: "cat_Comida" },
-          ],
-          [
-            { text: "🏠 Hogar", callback_data: "cat_Hogar" },
-            { text: "💡 Servicios", callback_data: "cat_Servicios" },
-          ],
-          [
-            { text: "🎉 Ocio", callback_data: "cat_Ocio" },
-            { text: "❓ Otros", callback_data: "cat_Otros" },
-          ],
-        ],
-      },
-    });
-  } else {
-    await ctx.reply("Usa el formato: [monto] [concepto]");
-  }
-});
-
-// Manejador de los clics en los botones
-bot.on("callback_query", async (ctx) => {
-  const userId = ctx.from.id;
-  const categoria = ctx.callback_query.data.replace("cat_", "");
-  const gasto = temporalGasto.get(userId);
-
-  if (gasto) {
-    try {
-      await doc.loadInfo();
-      const sheet = doc.sheetsByIndex[0];
-
-      await sheet.addRow({
-        Fecha: new Date().toLocaleString("es-AR", {
-          timeZone: "America/Argentina/Buenos_Aires",
-        }),
-        Monto: gasto.monto,
-        Concepto: gasto.concepto,
-        Categoria: categoria, // <--- Aquí usamos la nueva columna
-      });
-
-      await ctx.editMessageText(
-        `✅ Registrado: $${gasto.monto} en ${gasto.concepto} (${categoria})`
-      );
-      temporalGasto.delete(userId); // Limpiamos la memoria temporal
-    } catch (error) {
-      console.error(error);
-      await ctx.reply("❌ Error al guardar en Sheets");
-    }
-  } else {
-    await ctx.reply(
-      "⚠️ Error: El dato expiró. Por favor, escribe el gasto de nuevo."
-    );
-  }
-
-  await ctx.answerCbQuery(); // Quita el relojito del botón en Telegram
-});
-
 // Comando /resumen
 bot.command("resumen", async (ctx) => {
   try {
@@ -151,6 +79,80 @@ bot.command("resumen", async (ctx) => {
     console.error(error);
     await ctx.reply("❌ Error al generar el resumen.");
   }
+});
+
+bot.on("text", async (ctx) => {
+  const mensaje = ctx.message.text;
+  const partes = mensaje.split(" ");
+
+  if (partes.length >= 2 && !isNaN(partes[0].replace(",", "."))) {
+    const monto = partes[0];
+    const concepto = partes.slice(1).join(" ");
+
+    // Guardamos los datos temporalmente usando el ID del usuario como llave
+    temporalGasto.set(ctx.from.id, { monto, concepto });
+
+    // Enviamos los botones
+    await ctx.reply(`¿En qué categoría guardamos los $${monto}?`, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "🛒 Super", callback_data: "cat_Supermercado" },
+            { text: "🍔 Comida", callback_data: "cat_Comida" },
+          ],
+          [
+            { text: "🏠 Hogar", callback_data: "cat_Hogar" },
+            { text: "💡 Servicios", callback_data: "cat_Servicios" },
+          ],
+          [
+            { text: "🎉 Ocio", callback_data: "cat_Ocio" },
+            { text: "❓ Otros", callback_data: "cat_Otros" },
+          ],
+        ],
+      },
+    });
+  } else {
+    await ctx.reply("Usa el formato: [monto] [concepto]");
+  }
+});
+
+// En lugar de bot.on('callback_query', ...), usa esto:
+bot.action(/^cat_/, async (ctx) => {
+  const userId = ctx.from.id;
+
+  // telegraf extrae automáticamente el data en ctx.match
+  const categoria = ctx.match.input.replace("cat_", "");
+  const gasto = temporalGasto.get(userId);
+
+  if (gasto) {
+    try {
+      await doc.loadInfo();
+      const sheet = doc.sheetsByIndex[0];
+
+      await sheet.addRow({
+        Fecha: new Date().toLocaleString("es-AR", {
+          timeZone: "America/Argentina/Buenos_Aires",
+        }),
+        Monto: gasto.monto,
+        Concepto: gasto.concepto,
+        Categoria: categoria,
+      });
+
+      // Borramos el Map ANTES de responder para evitar doble clic
+      temporalGasto.delete(userId);
+
+      await ctx.editMessageText(
+        `✅ Registrado: $${gasto.monto} en ${gasto.concepto} (${categoria})`
+      );
+    } catch (error) {
+      console.error("Error al guardar:", error);
+      await ctx.reply("❌ Error al guardar en Sheets.");
+    }
+  } else {
+    await ctx.reply("⚠️ El dato expiró o ya fue procesado.");
+  }
+
+  await ctx.answerCbQuery();
 });
 
 bot.launch();
