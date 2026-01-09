@@ -227,18 +227,22 @@ bot.on("photo", async (ctx) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: "🛒 Super", callback_data: "cat_Supermercado" },
-                { text: "🍔 Comida", callback_data: "cat_Comida" },
+                { text: "🏗️ Mano de Obra", callback_data: "cat_Obra-Mano" },
+                { text: "🧱 Materiales", callback_data: "cat_Obra-Mat" },
               ],
               [
-                { text: "🏠 Hogar", callback_data: "cat_Hogar" },
-                { text: "💡 Servicios", callback_data: "cat_Servicios" },
+                { text: "🏠 Alquiler/Serv", callback_data: "cat_Vivienda" },
+                { text: "🛒 Super/Carne", callback_data: "cat_Supermercado" },
               ],
               [
-                { text: "🎉 Ocio", callback_data: "cat_Ocio" },
+                { text: "🍕 Comida/Ocio", callback_data: "cat_Comida-Ocio" },
+                { text: "🚗 Nafta/Auto", callback_data: "cat_Transporte" },
+              ],
+              [
+                { text: "🤵 Ropa/Pers", callback_data: "cat_Personal" },
                 { text: "❓ Otros", callback_data: "cat_Otros" },
               ],
-              [{ text: "❌ No, es incorrecto", callback_data: "cancelar" }],
+              [{ text: "❌ No es correcto", callback_data: "cancelar" }],
             ],
           },
         }
@@ -272,17 +276,22 @@ bot.on("text", async (ctx) => {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "🛒 Super", callback_data: "cat_Supermercado" },
-            { text: "🍔 Comida", callback_data: "cat_Comida" },
+            { text: "🏗️ Mano de Obra", callback_data: "cat_Obra-Mano" },
+            { text: "🧱 Materiales", callback_data: "cat_Obra-Mat" },
           ],
           [
-            { text: "🏠 Hogar", callback_data: "cat_Hogar" },
-            { text: "💡 Servicios", callback_data: "cat_Servicios" },
+            { text: "🏠 Alquiler/Serv", callback_data: "cat_Vivienda" },
+            { text: "🛒 Super/Carne", callback_data: "cat_Supermercado" },
           ],
           [
-            { text: "🎉 Ocio", callback_data: "cat_Ocio" },
+            { text: "🍕 Comida/Ocio", callback_data: "cat_Comida-Ocio" },
+            { text: "🚗 Nafta/Auto", callback_data: "cat_Transporte" },
+          ],
+          [
+            { text: "👕 Ropa/Pers", callback_data: "cat_Personal" },
             { text: "❓ Otros", callback_data: "cat_Otros" },
           ],
+          [{ text: "❌ No es correcto", callback_data: "cancelar" }],
         ],
       },
     });
