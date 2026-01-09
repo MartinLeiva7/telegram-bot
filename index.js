@@ -1,6 +1,7 @@
 const { Telegraf } = require("telegraf");
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
+const QuickChart = require('quickchart-js');
 
 // 1. Cargar variables de entorno
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -21,10 +22,10 @@ const bot = new Telegraf(BOT_TOKEN);
 const temporalGasto = new Map();
 
 // Comando /resumen
-bot.command("resumen", async (ctx) => {
+bot.command('resumen', async (ctx) => {
   try {
-    await ctx.reply("📊 Calculando el resumen de este mes...");
-
+    await ctx.reply('📊 Calculando el resumen de este mes y generando gráfico...');
+    
     await doc.loadInfo();
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();
@@ -36,19 +37,16 @@ bot.command("resumen", async (ctx) => {
     let totalMes = 0;
     const porCategoria = {};
 
-    rows.forEach((row) => {
-      // Asumiendo que la fecha en el Sheet se guarda como "DD/MM/YYYY HH:MM:SS"
-      const fechaStr = row.get("Fecha");
+    rows.forEach(row => {
+      const fechaStr = row.get('Fecha');
       if (!fechaStr) return;
 
-      // Parseamos la fecha manualmente para mayor seguridad
-      const [fechaParte] = fechaStr.split(" ");
-      const [dia, mes, anio] = fechaParte.split("/");
+      const [fechaParte] = fechaStr.split(' ');
+      const [dia, mes, anio] = fechaParte.split('/');
 
       if (parseInt(mes) === mesActual && parseInt(anio) === anioActual) {
-        // Limpiamos el monto por si tiene comas o signos de pesos
-        const monto = parseFloat(row.get("Monto").toString().replace(",", "."));
-        const cat = row.get("Categoria") || "Sin categoría";
+        const monto = parseFloat(row.get('Monto').toString().replace(',', '.'));
+        const cat = row.get('Categoria') || 'Sin categoría';
 
         if (!isNaN(monto)) {
           totalMes += monto;
@@ -58,26 +56,61 @@ bot.command("resumen", async (ctx) => {
     });
 
     if (totalMes === 0) {
-      return await ctx.reply("Aún no tienes gastos registrados este mes. 😶");
+      return await ctx.reply('Aún no tienes gastos registrados este mes. 😶');
     }
 
-    // Armar el mensaje de respuesta
-    let mensaje = `💰 *Resumen de ${ahora.toLocaleString("es-AR", {
-      month: "long",
-    })}* 💰\n`;
-    mensaje += `----------------------------\n`;
+    // --- Parte nueva para el gráfico ---
+    const chartLabels = Object.keys(porCategoria);
+    const chartData = Object.values(porCategoria);
+    const backgroundColors = [
+        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40',
+        '#A1F0C0', '#FFDDC1', '#DAA06D', '#7CB9E8', '#CFCFC4' // Puedes agregar más colores
+    ];
 
+    const myChart = new QuickChart();
+    myChart
+      .setConfig({
+        type: 'pie',
+        data: {
+          labels: chartLabels,
+          datasets: [{
+            data: chartData,
+            backgroundColor: backgroundColors.slice(0, chartLabels.length), // Usar solo los colores necesarios
+          }],
+        },
+        options: {
+          title: {
+            display: true,
+            text: `Gastos de ${ahora.toLocaleString('es-AR', { month: 'long' })}`
+          }
+        }
+      })
+      .setWidth(500)
+      .setHeight(300)
+      .setVersion('2'); // Usar la versión 2 de Chart.js si da problemas la última
+
+    const chartUrl = await myChart.getUrl(); // <--- Sin etiquetas extra
+
+    // --- Fin de parte nueva para el gráfico ---
+
+    // Armar el mensaje de respuesta (igual que antes)
+    let mensaje = `💰 *Resumen de ${ahora.toLocaleString('es-AR', { month: 'long' })}* 💰\n`;
+    mensaje += `----------------------------\n`;
+    
     for (const [cat, subtotal] of Object.entries(porCategoria)) {
-      mensaje += `🔹 *${cat}:* $${subtotal.toLocaleString("es-AR")}\n`;
+      mensaje += `🔹 *${cat}:* $${subtotal.toLocaleString('es-AR')}\n`;
     }
 
     mensaje += `----------------------------\n`;
-    mensaje += `TOTAL: *$${totalMes.toLocaleString("es-AR")}*`;
+    mensaje += `TOTAL: *$${totalMes.toLocaleString('es-AR')}*`;
 
-    await ctx.replyWithMarkdown(mensaje);
+    // Primero enviamos el gráfico y luego el texto
+    await ctx.replyWithPhoto(chartUrl); // <--- Enviamos la imagen del gráfico
+    await ctx.replyWithMarkdown(mensaje); // <--- Luego el texto
+
   } catch (error) {
-    console.error(error);
-    await ctx.reply("❌ Error al generar el resumen.");
+    console.error("Error en /resumen:", error);
+    await ctx.reply('❌ Error al generar el resumen.');
   }
 });
 
