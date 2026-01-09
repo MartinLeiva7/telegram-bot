@@ -202,13 +202,13 @@ bot.action("cancelar", async (ctx) => {
 
 bot.on("photo", async (ctx) => {
   try {
-    await ctx.reply("🔍 Procesando imagen y guardando respaldo...");
+    await ctx.reply("🔍 Analizando comprobante...");
 
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     const fileLink = await ctx.telegram.getFileLink(fileId);
 
-    // --- OPCIÓN B: Subir a Google Drive ---
-    let driveUrl = "";
+    // 1. Subida a Drive (Asegúrate de que la API ya esté activa)
+    let driveUrl = "Sin link";
     try {
       const response = await axios({
         method: "get",
@@ -217,94 +217,133 @@ bot.on("photo", async (ctx) => {
       });
       const driveFile = await drive.files.create({
         requestBody: {
-          name: `Comprobante_${Date.now()}.jpg`,
+          name: `Ticket_${Date.now()}.jpg`,
           parents: [DRIVE_FOLDER_ID],
         },
-        media: {
-          mimeType: "image/jpeg",
-          body: response.data,
-        },
-        fields: "id, webViewLink",
+        media: { mimeType: "image/jpeg", body: response.data },
+        fields: "webViewLink",
       });
       driveUrl = driveFile.data.webViewLink;
     } catch (err) {
-      console.error("Error subiendo a Drive:", err);
+      console.error("Error Drive:", err.message);
     }
 
-    // --- OPCIÓN A: Extraer Texto y Negocio ---
+    // 2. OCR y Limpieza (Opción A mejorada)
     const {
       data: { text },
     } = await Tesseract.recognize(fileLink.href, "spa+eng");
 
-    // 1. Extraer concepto (Negocio): Tomamos las primeras líneas que suelen tener el nombre
-    const lineas = text
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 3);
-    // Intentamos buscar una línea que no tenga números (que suelen ser el nombre del local)
-    let conceptoDetectado =
-      lineas.find((l) => !/\d/.test(l)) || lineas[0] || "Comprobante";
-    conceptoDetectado = conceptoDetectado.substring(0, 30); // Acortamos por si acaso
-
-    // 2. Extraer Monto (Usamos tu lógica de "el más alto" que funcionó bien)
+    // Extraer monto (tu lógica ganadora)
     const todosLosNumeros = text.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})?/g) || [];
     const candidatos = todosLosNumeros
       .map((n) => n.replace(/\./g, "").replace(",", "."))
       .map((n) => parseFloat(n))
       .filter((n) => n > 100 && n < 1000000);
-
     candidatos.sort((a, b) => b - a);
-    let montoFinal = candidatos.length > 0 ? candidatos[0] : null;
+    const montoFinal = candidatos[0];
+
+    // Extraer concepto limpio
+    const lineas = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 3 && !/\d{2}:/.test(l));
+    let concepto =
+      lineas.find((l) => !/\d/.test(l)) || lineas[0] || "Comprobante";
+    concepto = concepto.replace(/[^\w\s]/g, "").substring(0, 20);
 
     if (montoFinal) {
+      // Guardamos TODO en el Map, incluyendo el estado de "espera"
       temporalGasto.set(ctx.from.id, {
         monto: montoFinal.toString(),
-        concepto: conceptoDetectado,
-        driveUrl: driveUrl, // Guardamos el link de la foto
+        concepto: concepto,
+        driveUrl: driveUrl,
       });
 
       await ctx.reply(
-        `✅ *Detectado:* $${montoFinal.toLocaleString("es-AR")}\n` +
-          `🏢 *Lugar:* ${conceptoDetectado}\n\n` +
-          `¿En qué categoría lo guardamos?`,
+        `📌 *Propuesta de gasto:*\n` +
+          `💰 Monto: *$${montoFinal.toLocaleString("es-AR")}*\n` +
+          `🏢 Lugar: *${concepto}*\n\n` +
+          `¿Los datos son correctos?`,
         {
           parse_mode: "Markdown",
           reply_markup: {
-            inline_keyboard: CATEGORIES,
+            inline_keyboard: [
+              [
+                {
+                  text: "✅ Todo bien, elegir categoría",
+                  callback_data: "confirmar_foto",
+                },
+              ],
+              [
+                {
+                  text: "✏️ Cambiar Concepto",
+                  callback_data: "editar_concepto",
+                },
+              ],
+              [{ text: "❌ Cancelar", callback_data: "cancelar" }],
+            ],
           },
         }
       );
     } else {
-      await ctx.reply(
-        "No encontré un monto claro. Escríbelo así: [monto] [concepto]"
-      );
+      await ctx.reply("No detecté el monto. Escribe: [monto] [concepto]");
     }
   } catch (error) {
-    console.error("Error:", error);
-    await ctx.reply("Error procesando la imagen.");
+    console.error(error);
+    await ctx.reply("Error procesando imagen.");
   }
 });
 
 bot.on("text", async (ctx) => {
+  const userId = ctx.from.id;
+  const gastoTemporal = temporalGasto.get(userId);
+
+  // Caso A: El usuario está corrigiendo el nombre de una foto
+  if (gastoTemporal && gastoTemporal.esperandoConcepto) {
+    gastoTemporal.concepto = ctx.message.text;
+    gastoTemporal.esperandoConcepto = false;
+    return await ctx.reply(
+      `Concepto actualizado a: *${ctx.message.text}*. ¿Categoría?`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: { inline_keyboard: CATEGORIES },
+      }
+    );
+  }
+
+  // Caso B: Gasto manual normal (tu código anterior)
   const mensaje = ctx.message.text;
   const partes = mensaje.split(" ");
-
   if (partes.length >= 2 && !isNaN(partes[0].replace(",", "."))) {
     const monto = partes[0];
     const concepto = partes.slice(1).join(" ");
-
-    // Guardamos los datos temporalmente usando el ID del usuario como llave
-    temporalGasto.set(ctx.from.id, { monto, concepto });
-
-    // Enviamos los botones
-    await ctx.reply(`¿En qué categoría guardamos los $${monto}?`, {
-      reply_markup: {
-        inline_keyboard: CATEGORIES,
-      },
+    temporalGasto.set(userId, { monto, concepto, driveUrl: "Manual" });
+    await ctx.reply(`¿Categoría para $${monto}?`, {
+      reply_markup: { inline_keyboard: CATEGORIES },
     });
   } else {
     await ctx.reply("Usa el formato: [monto] [concepto]");
   }
+});
+
+// Si los datos están bien, mostramos las categorías
+bot.action("confirmar_foto", async (ctx) => {
+  await ctx.editMessageText("Perfecto. ¿A qué categoría corresponde?", {
+    reply_markup: { inline_keyboard: CATEGORIES }, // Reutilizamos tu constante
+  });
+  await ctx.answerCbQuery();
+});
+
+// Si quiere editar el concepto
+bot.action("editar_concepto", async (ctx) => {
+  const gasto = temporalGasto.get(ctx.from.id);
+  if (gasto) {
+    gasto.esperandoConcepto = true; // Marcamos que el próximo texto será el nombre
+    await ctx.reply(
+      `Escribe el nombre del comercio para el gasto de $${gasto.monto}:`
+    );
+  }
+  await ctx.answerCbQuery();
 });
 
 bot.launch();
