@@ -1,4 +1,5 @@
 const { Telegraf } = require("telegraf");
+const { google } = require("googleapis");
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
 const QuickChart = require("quickchart-js");
@@ -8,17 +9,45 @@ const axios = require("axios");
 // 1. Cargar variables de entorno
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
-// Para la clave de Google, la pasaremos como un string JSON
 const GOOGLE_CREDS = JSON.parse(process.env.GOOGLE_JSON_KEY);
+const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID;
 
+// 2. Primero definimos la Autenticación
 const serviceAccountAuth = new JWT({
   email: GOOGLE_CREDS.client_email,
   key: GOOGLE_CREDS.private_key,
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  scopes: [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive", // Asegúrate de tener este scope para Drive
+  ],
 });
 
+// 3. Ahora sí inicializamos Drive, Sheets y el Bot usando esa auth
+const drive = google.drive({ version: "v3", auth: serviceAccountAuth });
 const doc = new GoogleSpreadsheet(SHEET_ID, serviceAccountAuth);
 const bot = new Telegraf(BOT_TOKEN);
+
+// 4. Categorias
+
+const CATEGORIES = [
+  [
+    { text: "🏗️ Mano de Obra", callback_data: "cat_Obra-Mano" },
+    { text: "🧱 Materiales", callback_data: "cat_Obra-Mat" },
+  ],
+  [
+    { text: "🏠 Alquiler/Serv", callback_data: "cat_Vivienda" },
+    { text: "🛒 Super/Carne", callback_data: "cat_Supermercado" },
+  ],
+  [
+    { text: "🍕 Comida/Ocio", callback_data: "cat_Comida-Ocio" },
+    { text: "🚗 Nafta/Auto", callback_data: "cat_Transporte" },
+  ],
+  [
+    { text: "🤵 Personal", callback_data: "cat_Personal" },
+    { text: "❓ Otros", callback_data: "cat_Otros" },
+  ],
+  [{ text: "❌ No es correcto", callback_data: "cancelar" }],
+];
 
 // Objeto para guardar temporalmente el gasto antes de elegir categoría
 const temporalGasto = new Map();
@@ -135,8 +164,6 @@ bot.command("resumen", async (ctx) => {
 // En lugar de bot.on('callback_query', ...), usa esto:
 bot.action(/^cat_/, async (ctx) => {
   const userId = ctx.from.id;
-
-  // telegraf extrae automáticamente el data en ctx.match
   const categoria = ctx.match.input.replace("cat_", "");
   const gasto = temporalGasto.get(userId);
 
@@ -144,7 +171,6 @@ bot.action(/^cat_/, async (ctx) => {
     try {
       await doc.loadInfo();
       const sheet = doc.sheetsByIndex[0];
-
       await sheet.addRow({
         Fecha: new Date().toLocaleString("es-AR", {
           timeZone: "America/Argentina/Buenos_Aires",
@@ -152,22 +178,16 @@ bot.action(/^cat_/, async (ctx) => {
         Monto: gasto.monto,
         Concepto: gasto.concepto,
         Categoria: categoria,
+        Link_Foto: gasto.driveUrl, // <-- Añade esta columna a tu Excel si quieres ver el link
       });
-
-      // Borramos el Map ANTES de responder para evitar doble clic
       temporalGasto.delete(userId);
-
       await ctx.editMessageText(
-        `✅ Registrado: $${gasto.monto} en ${gasto.concepto} (${categoria})`
+        `✅ Guardado: $${gasto.monto} en ${categoria} (${gasto.concepto})`
       );
     } catch (error) {
-      console.error("Error al guardar:", error);
-      await ctx.reply("❌ Error al guardar en Sheets.");
+      await ctx.reply("❌ Error al guardar.");
     }
-  } else {
-    await ctx.reply("⚠️ El dato expiró o ya fue procesado.");
   }
-
   await ctx.answerCbQuery();
 });
 
@@ -182,81 +202,86 @@ bot.action("cancelar", async (ctx) => {
 
 bot.on("photo", async (ctx) => {
   try {
-    await ctx.reply("🔍 Analizando comprobante... por favor espera.");
+    await ctx.reply("🔍 Procesando imagen y guardando respaldo...");
 
-    // 1. Obtener la URL de la foto (la de mejor calidad)
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-    const fileUrl = await ctx.telegram.getFileLink(fileId);
+    const fileLink = await ctx.telegram.getFileLink(fileId);
 
-    // 2. Usar Tesseract para leer la imagen
-    // Usamos 'spa' para español y 'eng' para números
+    // --- OPCIÓN B: Subir a Google Drive ---
+    let driveUrl = "";
+    try {
+      const response = await axios({
+        method: "get",
+        url: fileLink.href,
+        responseType: "stream",
+      });
+      const driveFile = await drive.files.create({
+        requestBody: {
+          name: `Comprobante_${Date.now()}.jpg`,
+          parents: [DRIVE_FOLDER_ID],
+        },
+        media: {
+          mimeType: "image/jpeg",
+          body: response.data,
+        },
+        fields: "id, webViewLink",
+      });
+      driveUrl = driveFile.data.webViewLink;
+    } catch (err) {
+      console.error("Error subiendo a Drive:", err);
+    }
+
+    // --- OPCIÓN A: Extraer Texto y Negocio ---
     const {
       data: { text },
-    } = await Tesseract.recognize(fileUrl.href, "spa+eng");
+    } = await Tesseract.recognize(fileLink.href, "spa+eng");
 
-    console.log("Texto extraído:", text); // Esto es para que veas en Koyeb qué leyó
+    // 1. Extraer concepto (Negocio): Tomamos las primeras líneas que suelen tener el nombre
+    const lineas = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 3);
+    // Intentamos buscar una línea que no tenga números (que suelen ser el nombre del local)
+    let conceptoDetectado =
+      lineas.find((l) => !/\d/.test(l)) || lineas[0] || "Comprobante";
+    conceptoDetectado = conceptoDetectado.substring(0, 30); // Acortamos por si acaso
 
-    // 3. Lógica de extracción mejorada
-    // Buscamos todos los números que tengan formato de miles (punto) o decimales (coma)
+    // 2. Extraer Monto (Usamos tu lógica de "el más alto" que funcionó bien)
     const todosLosNumeros = text.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})?/g) || [];
-
-    // Limpiamos y filtramos: solo números mayores a 100 (para evitar horas como 11:32 o años)
     const candidatos = todosLosNumeros
-      .map((n) => n.replace(/\./g, "").replace(",", ".")) // "33.000" -> "33000"
+      .map((n) => n.replace(/\./g, "").replace(",", "."))
       .map((n) => parseFloat(n))
-      .filter((n) => n > 100 && n < 1000000); // Filtro de seguridad
+      .filter((n) => n > 100 && n < 1000000);
 
-    // Ordenamos de mayor a menor (el Total suele ser el número más grande del comprobante)
     candidatos.sort((a, b) => b - a);
-
     let montoFinal = candidatos.length > 0 ? candidatos[0] : null;
 
     if (montoFinal) {
-      // Guardamos en el Map temporal
       temporalGasto.set(ctx.from.id, {
         monto: montoFinal.toString(),
-        concepto: "Comprobante",
+        concepto: conceptoDetectado,
+        driveUrl: driveUrl, // Guardamos el link de la foto
       });
 
       await ctx.reply(
-        `💰 He detectado un monto de *$${montoFinal.toLocaleString(
-          "es-AR"
-        )}*.\n\n` + `¿Es correcto? Elige una categoría para guardar:`,
+        `✅ *Detectado:* $${montoFinal.toLocaleString("es-AR")}\n` +
+          `🏢 *Lugar:* ${conceptoDetectado}\n\n` +
+          `¿En qué categoría lo guardamos?`,
         {
           parse_mode: "Markdown",
           reply_markup: {
-            inline_keyboard: [
-              [
-                { text: "🏗️ Mano de Obra", callback_data: "cat_Obra-Mano" },
-                { text: "🧱 Materiales", callback_data: "cat_Obra-Mat" },
-              ],
-              [
-                { text: "🏠 Alquiler/Serv", callback_data: "cat_Vivienda" },
-                { text: "🛒 Super/Carne", callback_data: "cat_Supermercado" },
-              ],
-              [
-                { text: "🍕 Comida/Ocio", callback_data: "cat_Comida-Ocio" },
-                { text: "🚗 Nafta/Auto", callback_data: "cat_Transporte" },
-              ],
-              [
-                { text: "🤵 Ropa/Pers", callback_data: "cat_Personal" },
-                { text: "❓ Otros", callback_data: "cat_Otros" },
-              ],
-              [{ text: "❌ No es correcto", callback_data: "cancelar" }],
-            ],
+            inline_keyboard: CATEGORIES,
           },
         }
       );
     } else {
       await ctx.reply(
-        "No pude encontrar el monto. Por favor, escribe: [monto] [concepto]"
+        "No encontré un monto claro. Escríbelo así: [monto] [concepto]"
       );
     }
   } catch (error) {
-    console.error("Error procesando imagen:", error);
-    await ctx.reply(
-      "Hubo un error al leer la imagen. Intenta escribir el gasto manualmente."
-    );
+    console.error("Error:", error);
+    await ctx.reply("Error procesando la imagen.");
   }
 });
 
@@ -274,25 +299,7 @@ bot.on("text", async (ctx) => {
     // Enviamos los botones
     await ctx.reply(`¿En qué categoría guardamos los $${monto}?`, {
       reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "🏗️ Mano de Obra", callback_data: "cat_Obra-Mano" },
-            { text: "🧱 Materiales", callback_data: "cat_Obra-Mat" },
-          ],
-          [
-            { text: "🏠 Alquiler/Serv", callback_data: "cat_Vivienda" },
-            { text: "🛒 Super/Carne", callback_data: "cat_Supermercado" },
-          ],
-          [
-            { text: "🍕 Comida/Ocio", callback_data: "cat_Comida-Ocio" },
-            { text: "🚗 Nafta/Auto", callback_data: "cat_Transporte" },
-          ],
-          [
-            { text: "👕 Ropa/Pers", callback_data: "cat_Personal" },
-            { text: "❓ Otros", callback_data: "cat_Otros" },
-          ],
-          [{ text: "❌ No es correcto", callback_data: "cancelar" }],
-        ],
+        inline_keyboard: CATEGORIES,
       },
     });
   } else {
