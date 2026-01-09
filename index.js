@@ -198,53 +198,59 @@ bot.on("photo", async (ctx) => {
 
     // 3. Buscar el monto con una Expresión Regular (Regex)
     // Busca números que tengan formato de moneda (ej: 1.500,00 o 1500.00)
-    const regexMonto =
-      /(?:\$|USD|ARS)?\s?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)/g;
-    const coincidencias = text.match(regexMonto);
+    const regexMontoPro =
+      /(?:Total|Importe|Pagaste|[Pp]ago)?\s?\$?\s?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)/i;
 
-    if (coincidencias && coincidencias.length > 0) {
-      // Intentamos quedarnos con el número más grande o el más probable
-      // Limpiamos el string para que sea un número válido (ej: "1.500,50" -> "1500.50")
-      const montosLimpios = coincidencias
-        .map((m) => m.replace(/[^0-9,]/g, "").replace(",", "."))
-        .filter((m) => parseFloat(m) > 0);
+    const match = text.match(regexMontoPro);
+    let montoFinal = null;
 
-      const montoFinal = montosLimpios[0]; // Tomamos el primero que encontró
-
-      if (montoFinal) {
-        // Guardamos en el Map temporal como si lo hubiera escrito el usuario
-        temporalGasto.set(ctx.from.id, {
-          monto: montoFinal,
-          concepto: "Comprobante",
-        });
-
-        await ctx.reply(
-          `He detectado un monto de *$${montoFinal}*.\n¿En qué categoría lo guardamos?`,
-          {
-            parse_mode: "Markdown",
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: "🛒 Super", callback_data: "cat_Supermercado" },
-                  { text: "🍔 Comida", callback_data: "cat_Comida" },
-                ],
-                [
-                  { text: "🏠 Hogar", callback_data: "cat_Hogar" },
-                  { text: "💡 Servicios", callback_data: "cat_Servicios" },
-                ],
-                [
-                  { text: "🎉 Ocio", callback_data: "cat_Ocio" },
-                  { text: "❓ Otros", callback_data: "cat_Otros" },
-                ],
-                [{ text: "❌ No es correcto", callback_data: "cancelar" }],
-              ],
-            },
-          }
-        );
-      }
+    if (match && match[1]) {
+      // Limpiamos el monto (ej: "33.000" -> "33000")
+      montoFinal = match[1].replace(/\./g, "").replace(",", ".");
     } else {
+      // Si no encontró el "Total", buscamos cualquier número que parezca un precio alto (> 100)
+      const todosLosNumeros =
+        text.match(/\d{1,3}(?:\.\d{3})+(?:,\d{2})?/g) || [];
+      const candidatos = todosLosNumeros
+        .map((n) => n.replace(/\./g, "").replace(",", "."))
+        .filter((n) => parseFloat(n) > 100); // Ignoramos números pequeños como la hora
+
+      if (candidatos.length > 0) {
+        montoFinal = candidatos[0];
+      }
+    }
+
+    if (montoFinal) {
+      // Guardamos en el Map temporal como si lo hubiera escrito el usuario
+      temporalGasto.set(ctx.from.id, {
+        monto: montoFinal,
+        concepto: "Comprobante",
+      });
+
       await ctx.reply(
-        "No pude detectar un monto claro. Por favor, escríbelo manualmente: [monto] [concepto]"
+        `He detectado un monto de *$${parseFloat(montoFinal).toLocaleString(
+          "es-AR"
+        )}*.\n¿En qué categoría lo guardamos?`,
+        {
+          parse_mode: "Markdown",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "🛒 Super", callback_data: "cat_Supermercado" },
+                { text: "🍔 Comida", callback_data: "cat_Comida" },
+              ],
+              [
+                { text: "🏠 Hogar", callback_data: "cat_Hogar" },
+                { text: "💡 Servicios", callback_data: "cat_Servicios" },
+              ],
+              [
+                { text: "🎉 Ocio", callback_data: "cat_Ocio" },
+                { text: "❓ Otros", callback_data: "cat_Otros" },
+              ],
+              [{ text: "❌ No es correcto", callback_data: "cancelar" }],
+            ],
+          },
+        }
       );
     }
   } catch (error) {
