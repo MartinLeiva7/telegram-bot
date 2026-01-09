@@ -202,13 +202,14 @@ bot.action("cancelar", async (ctx) => {
 
 bot.on("photo", async (ctx) => {
   try {
-    await ctx.reply("🔍 Analizando comprobante y guardando en Drive...");
+    await ctx.reply("🔍 Analizando comprobante...");
 
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     const fileLink = await ctx.telegram.getFileLink(fileId);
 
-    // --- NUEVO: Subida a Google Drive ---
-    let driveUrl = "Sin link (Error)";
+    let driveUrl = "Sin link (Drive Quota Error)";
+
+    // Intento de subida a Drive
     try {
       const response = await axios({
         method: "get",
@@ -219,26 +220,26 @@ bot.on("photo", async (ctx) => {
       const driveFile = await drive.files.create({
         requestBody: {
           name: `Comprobante_${Date.now()}.jpg`,
-          parents: [DRIVE_FOLDER_ID], // AQUÍ usa la variable que faltaba
+          parents: [DRIVE_FOLDER_ID],
         },
         media: {
           mimeType: "image/jpeg",
           body: response.data,
         },
         fields: "id, webViewLink",
+        supportsAllDrives: true, // IMPORTANTE
       });
+
       driveUrl = driveFile.data.webViewLink;
-      console.log("Archivo subido a Drive:", driveUrl);
     } catch (err) {
-      console.error("Error subiendo a Drive:", err.message);
-      // Si falla Drive, igual seguimos con el OCR para no trabar el bot
+      console.error("Error Drive:", err.message);
+      // No lanzamos error para que el bot siga con el monto
     }
 
-    // --- OCR para el monto ---
+    // OCR para el monto
     const {
       data: { text },
     } = await Tesseract.recognize(fileLink.href, "spa+eng");
-
     const todosLosNumeros = text.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})?/g) || [];
     const candidatos = todosLosNumeros
       .map((n) => n.replace(/\./g, "").replace(",", "."))
@@ -251,7 +252,7 @@ bot.on("photo", async (ctx) => {
     if (montoFinal) {
       temporalGasto.set(ctx.from.id, {
         monto: montoFinal.toString(),
-        driveUrl: driveUrl, // Guardamos el link de Drive (o el error)
+        driveUrl: driveUrl,
         esperandoConcepto: false,
       });
 
@@ -271,8 +272,8 @@ bot.on("photo", async (ctx) => {
       await ctx.reply("No detecté el monto. Escribe: [monto] [concepto]");
     }
   } catch (error) {
-    console.error("Error general en photo:", error);
-    await ctx.reply("Error al procesar la imagen.");
+    console.error("Error general:", error);
+    await ctx.reply("Hubo un problema al procesar la imagen.");
   }
 });
 
