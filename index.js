@@ -202,85 +202,67 @@ bot.action("cancelar", async (ctx) => {
 
 bot.on("photo", async (ctx) => {
   try {
-    await ctx.reply("🔍 Analizando comprobante...");
+    await ctx.reply("🔍 Analizando comprobante y guardando en Drive...");
 
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     const fileLink = await ctx.telegram.getFileLink(fileId);
 
-    // 1. Subida a Drive (Asegúrate de que la API ya esté activa)
-    let driveUrl = "Sin link";
+    // --- NUEVO: Subida a Google Drive ---
+    let driveUrl = "Sin link (Error)";
     try {
       const response = await axios({
         method: "get",
         url: fileLink.href,
         responseType: "stream",
       });
+
       const driveFile = await drive.files.create({
         requestBody: {
-          name: `Ticket_${Date.now()}.jpg`,
-          parents: [DRIVE_FOLDER_ID],
+          name: `Comprobante_${Date.now()}.jpg`,
+          parents: [DRIVE_FOLDER_ID], // AQUÍ usa la variable que faltaba
         },
-        media: { mimeType: "image/jpeg", body: response.data },
-        fields: "webViewLink",
+        media: {
+          mimeType: "image/jpeg",
+          body: response.data,
+        },
+        fields: "id, webViewLink",
       });
       driveUrl = driveFile.data.webViewLink;
+      console.log("Archivo subido a Drive:", driveUrl);
     } catch (err) {
-      console.error("Error Drive:", err.message);
+      console.error("Error subiendo a Drive:", err.message);
+      // Si falla Drive, igual seguimos con el OCR para no trabar el bot
     }
 
-    // 2. OCR y Limpieza (Opción A mejorada)
+    // --- OCR para el monto ---
     const {
       data: { text },
     } = await Tesseract.recognize(fileLink.href, "spa+eng");
 
-    // Extraer monto (tu lógica ganadora)
     const todosLosNumeros = text.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})?/g) || [];
     const candidatos = todosLosNumeros
       .map((n) => n.replace(/\./g, "").replace(",", "."))
       .map((n) => parseFloat(n))
       .filter((n) => n > 100 && n < 1000000);
+
     candidatos.sort((a, b) => b - a);
     const montoFinal = candidatos[0];
 
-    // Extraer concepto limpio
-    const lineas = text
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 3 && !/\d{2}:/.test(l));
-    let concepto =
-      lineas.find((l) => !/\d/.test(l)) || lineas[0] || "Comprobante";
-    concepto = concepto.replace(/[^\w\s]/g, "").substring(0, 20);
-
     if (montoFinal) {
-      // Guardamos TODO en el Map, incluyendo el estado de "espera"
       temporalGasto.set(ctx.from.id, {
         monto: montoFinal.toString(),
-        concepto: concepto,
-        driveUrl: driveUrl,
+        driveUrl: driveUrl, // Guardamos el link de Drive (o el error)
+        esperandoConcepto: false,
       });
 
       await ctx.reply(
-        `📌 *Propuesta de gasto:*\n` +
-          `💰 Monto: *$${montoFinal.toLocaleString("es-AR")}*\n` +
-          `🏢 Lugar: *${concepto}*\n\n` +
-          `¿Los datos son correctos?`,
+        `💰 ¿El monto *$${montoFinal.toLocaleString("es-AR")}* es correcto?`,
         {
           parse_mode: "Markdown",
           reply_markup: {
             inline_keyboard: [
-              [
-                {
-                  text: "✅ Todo bien, elegir categoría",
-                  callback_data: "confirmar_foto",
-                },
-              ],
-              [
-                {
-                  text: "✏️ Cambiar Concepto",
-                  callback_data: "editar_concepto",
-                },
-              ],
-              [{ text: "❌ Cancelar", callback_data: "cancelar" }],
+              [{ text: "✅ Sí, es correcto", callback_data: "monto_ok" }],
+              [{ text: "❌ No, escribir manual", callback_data: "cancelar" }],
             ],
           },
         }
@@ -289,40 +271,61 @@ bot.on("photo", async (ctx) => {
       await ctx.reply("No detecté el monto. Escribe: [monto] [concepto]");
     }
   } catch (error) {
-    console.error(error);
-    await ctx.reply("Error procesando imagen.");
+    console.error("Error general en photo:", error);
+    await ctx.reply("Error al procesar la imagen.");
   }
 });
 
+// Cuando el monto de la foto es correcto, pedimos el concepto
+bot.action("monto_ok", async (ctx) => {
+  const gasto = temporalGasto.get(ctx.from.id);
+  if (gasto) {
+    gasto.esperandoConcepto = true; // Ahora esperamos que el usuario escriba el nombre
+    await ctx.editMessageText(
+      `Monto confirmado: *$${parseFloat(gasto.monto).toLocaleString(
+        "es-AR"
+      )}*.\n\n✍️ Ahora escribe el **Concepto** (ej: La Huella, Albañil, etc):`,
+      { parse_mode: "Markdown" }
+    );
+  }
+  await ctx.answerCbQuery();
+});
+
+// Modificamos el bot.on("text") para que sea el "cerebro"
 bot.on("text", async (ctx) => {
   const userId = ctx.from.id;
+  const mensaje = ctx.message.text;
   const gastoTemporal = temporalGasto.get(userId);
 
-  // Caso A: El usuario está corrigiendo el nombre de una foto
+  // CASO A: El bot estaba esperando el concepto de una foto confirmada
   if (gastoTemporal && gastoTemporal.esperandoConcepto) {
-    gastoTemporal.concepto = ctx.message.text;
+    gastoTemporal.concepto = mensaje;
     gastoTemporal.esperandoConcepto = false;
-    return await ctx.reply(
-      `Concepto actualizado a: *${ctx.message.text}*. ¿Categoría?`,
+    return await ctx.reply(`Concepto: *${mensaje}*. ¿Categoría?`, {
+      parse_mode: "Markdown",
+      reply_markup: { inline_keyboard: CATEGORIES },
+    });
+  }
+
+  // CASO B: Ingreso manual normal [monto] [concepto]
+  const partes = mensaje.split(" ");
+  if (partes.length >= 2 && !isNaN(partes[0].replace(",", "."))) {
+    const monto = partes[0].replace(",", ".");
+    const concepto = partes.slice(1).join(" ");
+
+    temporalGasto.set(userId, { monto, concepto, driveUrl: "Manual" });
+
+    await ctx.reply(
+      `¿Categoría para *$${parseFloat(monto).toLocaleString("es-AR")}*?`,
       {
         parse_mode: "Markdown",
         reply_markup: { inline_keyboard: CATEGORIES },
       }
     );
-  }
-
-  // Caso B: Gasto manual normal (tu código anterior)
-  const mensaje = ctx.message.text;
-  const partes = mensaje.split(" ");
-  if (partes.length >= 2 && !isNaN(partes[0].replace(",", "."))) {
-    const monto = partes[0];
-    const concepto = partes.slice(1).join(" ");
-    temporalGasto.set(userId, { monto, concepto, driveUrl: "Manual" });
-    await ctx.reply(`¿Categoría para $${monto}?`, {
-      reply_markup: { inline_keyboard: CATEGORIES },
-    });
   } else {
-    await ctx.reply("Usa el formato: [monto] [concepto]");
+    await ctx.reply(
+      "Usa el formato: [monto] [concepto]\nO envía una foto de un comprobante."
+    );
   }
 });
 
