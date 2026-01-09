@@ -10,25 +10,19 @@ const axios = require("axios");
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const GOOGLE_CREDS = JSON.parse(process.env.GOOGLE_JSON_KEY);
-const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID;
 
 // 2. Primero definimos la Autenticación
 const serviceAccountAuth = new JWT({
   email: GOOGLE_CREDS.client_email,
   key: GOOGLE_CREDS.private_key,
-  scopes: [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive", // Asegúrate de tener este scope para Drive
-  ],
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
-// 3. Ahora sí inicializamos Drive, Sheets y el Bot usando esa auth
-const drive = google.drive({ version: "v3", auth: serviceAccountAuth });
+// 3. Ahora sí inicializamos Sheets y el Bot usando esa auth
 const doc = new GoogleSpreadsheet(SHEET_ID, serviceAccountAuth);
 const bot = new Telegraf(BOT_TOKEN);
 
 // 4. Categorias
-
 const CATEGORIES = [
   [
     { text: "🏗️ Mano de Obra", callback_data: "cat_Obra-Mano" },
@@ -202,44 +196,37 @@ bot.action("cancelar", async (ctx) => {
 
 bot.on("photo", async (ctx) => {
   try {
-    await ctx.reply("🔍 Analizando comprobante...");
+    await ctx.reply("🔍 Analizando comprobante y subiendo imagen...");
 
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     const fileLink = await ctx.telegram.getFileLink(fileId);
 
-    let driveUrl = "Sin link (Drive Quota Error)";
-
-    // Intento de subida a Drive
+    // --- NUEVO: Subida a ImgBB ---
+    let finalImageUrl = "Sin link";
     try {
-      const response = await axios({
-        method: "get",
-        url: fileLink.href,
-        responseType: "stream",
-      });
-
-      const driveFile = await drive.files.create({
-        requestBody: {
-          name: `Comprobante_${Date.now()}.jpg`,
-          parents: [DRIVE_FOLDER_ID],
+      // ImgBB permite subir enviando directamente la URL de la imagen
+      const imgbbResponse = await axios.get("https://api.imgbb.com/1/upload", {
+        params: {
+          key: process.env.IMGBB_API_KEY,
+          image: fileLink.href, // Le pasamos el link de Telegram
         },
-        media: {
-          mimeType: "image/jpeg",
-          body: response.data,
-        },
-        fields: "id, webViewLink",
-        supportsAllDrives: true, // IMPORTANTE
       });
-
-      driveUrl = driveFile.data.webViewLink;
+      finalImageUrl = imgbbResponse.data.data.url;
+      console.log("Imagen subida a ImgBB exitosamente:", finalImageUrl);
     } catch (err) {
-      console.error("Error Drive:", err.message);
-      // No lanzamos error para que el bot siga con el monto
+      console.error(
+        "Error subiendo a ImgBB:",
+        err.response?.data || err.message
+      );
+      // Si falla ImgBB, usamos el link de Telegram como backup (dura 1 hora)
+      finalImageUrl = fileLink.href;
     }
 
-    // OCR para el monto
+    // --- OCR para el monto (Tesseract) ---
     const {
       data: { text },
     } = await Tesseract.recognize(fileLink.href, "spa+eng");
+
     const todosLosNumeros = text.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})?/g) || [];
     const candidatos = todosLosNumeros
       .map((n) => n.replace(/\./g, "").replace(",", "."))
@@ -250,9 +237,10 @@ bot.on("photo", async (ctx) => {
     const montoFinal = candidatos[0];
 
     if (montoFinal) {
+      // Guardamos los datos temporalmente
       temporalGasto.set(ctx.from.id, {
         monto: montoFinal.toString(),
-        driveUrl: driveUrl,
+        driveUrl: finalImageUrl, // Aunque la variable se llame driveUrl, ahora guarda el de ImgBB
         esperandoConcepto: false,
       });
 
@@ -269,11 +257,13 @@ bot.on("photo", async (ctx) => {
         }
       );
     } else {
-      await ctx.reply("No detecté el monto. Escribe: [monto] [concepto]");
+      await ctx.reply(
+        "No detecté el monto. Por favor, escribe: [monto] [concepto]"
+      );
     }
   } catch (error) {
-    console.error("Error general:", error);
-    await ctx.reply("Hubo un problema al procesar la imagen.");
+    console.error("Error general en photo:", error);
+    await ctx.reply("Error al procesar la imagen.");
   }
 });
 
@@ -311,7 +301,8 @@ bot.on("text", async (ctx) => {
   // CASO B: Ingreso manual normal [monto] [concepto]
   const partes = mensaje.split(" ");
   if (partes.length >= 2 && !isNaN(partes[0].replace(",", "."))) {
-    const monto = partes[0].replace(",", ".");
+    const montoLimpio = partes[0].replace(/\./g, "").replace(",", ".");
+    const monto = parseFloat(montoLimpio);
     const concepto = partes.slice(1).join(" ");
 
     temporalGasto.set(userId, { monto, concepto, driveUrl: "Manual" });
