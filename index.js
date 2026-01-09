@@ -196,41 +196,32 @@ bot.on("photo", async (ctx) => {
 
     console.log("Texto extraído:", text); // Esto es para que veas en Koyeb qué leyó
 
-    // 3. Buscar el monto con una Expresión Regular (Regex)
-    // Busca números que tengan formato de moneda (ej: 1.500,00 o 1500.00)
-    const regexMontoPro =
-      /(?:Total|Importe|Pagaste|[Pp]ago)?\s?\$?\s?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)/i;
+    // 3. Lógica de extracción mejorada
+    // Buscamos todos los números que tengan formato de miles (punto) o decimales (coma)
+    const todosLosNumeros = text.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})?/g) || [];
 
-    const match = text.match(regexMontoPro);
-    let montoFinal = null;
+    // Limpiamos y filtramos: solo números mayores a 100 (para evitar horas como 11:32 o años)
+    const candidatos = todosLosNumeros
+      .map((n) => n.replace(/\./g, "").replace(",", ".")) // "33.000" -> "33000"
+      .map((n) => parseFloat(n))
+      .filter((n) => n > 100 && n < 1000000); // Filtro de seguridad
 
-    if (match && match[1]) {
-      // Limpiamos el monto (ej: "33.000" -> "33000")
-      montoFinal = match[1].replace(/\./g, "").replace(",", ".");
-    } else {
-      // Si no encontró el "Total", buscamos cualquier número que parezca un precio alto (> 100)
-      const todosLosNumeros =
-        text.match(/\d{1,3}(?:\.\d{3})+(?:,\d{2})?/g) || [];
-      const candidatos = todosLosNumeros
-        .map((n) => n.replace(/\./g, "").replace(",", "."))
-        .filter((n) => parseFloat(n) > 100); // Ignoramos números pequeños como la hora
+    // Ordenamos de mayor a menor (el Total suele ser el número más grande del comprobante)
+    candidatos.sort((a, b) => b - a);
 
-      if (candidatos.length > 0) {
-        montoFinal = candidatos[0];
-      }
-    }
+    let montoFinal = candidatos.length > 0 ? candidatos[0] : null;
 
     if (montoFinal) {
-      // Guardamos en el Map temporal como si lo hubiera escrito el usuario
+      // Guardamos en el Map temporal
       temporalGasto.set(ctx.from.id, {
-        monto: montoFinal,
+        monto: montoFinal.toString(),
         concepto: "Comprobante",
       });
 
       await ctx.reply(
-        `He detectado un monto de *$${parseFloat(montoFinal).toLocaleString(
+        `💰 He detectado un monto de *$${montoFinal.toLocaleString(
           "es-AR"
-        )}*.\n¿En qué categoría lo guardamos?`,
+        )}*.\n\n` + `¿Es correcto? Elige una categoría para guardar:`,
         {
           parse_mode: "Markdown",
           reply_markup: {
@@ -247,10 +238,14 @@ bot.on("photo", async (ctx) => {
                 { text: "🎉 Ocio", callback_data: "cat_Ocio" },
                 { text: "❓ Otros", callback_data: "cat_Otros" },
               ],
-              [{ text: "❌ No es correcto", callback_data: "cancelar" }],
+              [{ text: "❌ No, es incorrecto", callback_data: "cancelar" }],
             ],
           },
         }
+      );
+    } else {
+      await ctx.reply(
+        "No pude encontrar el monto. Por favor, escribe: [monto] [concepto]"
       );
     }
   } catch (error) {
