@@ -5,11 +5,14 @@ const { JWT } = require("google-auth-library");
 const QuickChart = require("quickchart-js");
 const Tesseract = require("tesseract.js");
 const axios = require("axios");
+const http = require("http");
 
 // 1. Cargar variables de entorno
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const GOOGLE_CREDS = JSON.parse(process.env.GOOGLE_JSON_KEY);
+const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
+const PORT = process.env.PORT || 8000; // Render asigna el puerto automáticamente
 
 // 2. Primero definimos la Autenticación
 const serviceAccountAuth = new JWT({
@@ -207,7 +210,7 @@ bot.on("photo", async (ctx) => {
       // ImgBB permite subir enviando directamente la URL de la imagen
       const imgbbResponse = await axios.get("https://api.imgbb.com/1/upload", {
         params: {
-          key: process.env.IMGBB_API_KEY,
+          key: IMGBB_API_KEY,
           image: fileLink.href, // Le pasamos el link de Telegram
         },
       });
@@ -345,10 +348,11 @@ bot.launch();
 console.log("Bot en marcha...");
 
 // Mini servidor para que Koyeb crea que es una web y pase el Health Check
-const http = require("http");
 http
   .createServer((req, res) => {
     res.writeHead(200);
     res.end("Bot vivo");
   })
-  .listen(process.env.PORT || 8000);
+  .listen(PORT, () => {
+    console.log(`Servidor de monitoreo corriendo en puerto ${PORT}`);
+  });
