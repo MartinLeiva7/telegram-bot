@@ -1,5 +1,4 @@
 const { Telegraf } = require("telegraf");
-const { google } = require("googleapis");
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
 const QuickChart = require("quickchart-js");
@@ -53,7 +52,7 @@ const temporalGasto = new Map();
 bot.command("resumen", async (ctx) => {
   try {
     await ctx.reply(
-      "📊 Calculando el resumen de este mes y generando gráfico..."
+      "📊 Calculando el resumen de este mes y generando gráfico...",
     );
 
     await doc.loadInfo();
@@ -179,7 +178,7 @@ bot.action(/^cat_/, async (ctx) => {
       });
       temporalGasto.delete(userId);
       await ctx.editMessageText(
-        `✅ Guardado: $${gasto.monto} en ${categoria} (${gasto.concepto})`
+        `✅ Guardado: $${gasto.monto} en ${categoria} (${gasto.concepto})`,
       );
     } catch (error) {
       await ctx.reply("❌ Error al guardar.");
@@ -192,7 +191,7 @@ bot.action(/^cat_/, async (ctx) => {
 bot.action("cancelar", async (ctx) => {
   temporalGasto.delete(ctx.from.id);
   await ctx.editMessageText(
-    "Operación cancelada. Puedes escribir el gasto manualmente."
+    "Operación cancelada. Puedes escribir el gasto manualmente.",
   );
   await ctx.answerCbQuery();
 });
@@ -219,7 +218,7 @@ bot.on("photo", async (ctx) => {
     } catch (err) {
       console.error(
         "Error subiendo a ImgBB:",
-        err.response?.data || err.message
+        err.response?.data || err.message,
       );
       // Si falla ImgBB, usamos el link de Telegram como backup (dura 1 hora)
       finalImageUrl = fileLink.href;
@@ -257,11 +256,11 @@ bot.on("photo", async (ctx) => {
               [{ text: "❌ No, escribir manual", callback_data: "cancelar" }],
             ],
           },
-        }
+        },
       );
     } else {
       await ctx.reply(
-        "No detecté el monto. Por favor, escribe: [monto] [concepto]"
+        "No detecté el monto. Por favor, escribe: [monto] [concepto]",
       );
     }
   } catch (error) {
@@ -277,9 +276,9 @@ bot.action("monto_ok", async (ctx) => {
     gasto.esperandoConcepto = true; // Ahora esperamos que el usuario escriba el nombre
     await ctx.editMessageText(
       `Monto confirmado: *$${parseFloat(gasto.monto).toLocaleString(
-        "es-AR"
+        "es-AR",
       )}*.\n\n✍️ Ahora escribe el **Concepto** (ej: La Huella, Albañil, etc):`,
-      { parse_mode: "Markdown" }
+      { parse_mode: "Markdown" },
     );
   }
   await ctx.answerCbQuery();
@@ -315,11 +314,11 @@ bot.on("text", async (ctx) => {
       {
         parse_mode: "Markdown",
         reply_markup: { inline_keyboard: CATEGORIES },
-      }
+      },
     );
   } else {
     await ctx.reply(
-      "Usa el formato: [monto] [concepto]\nO envía una foto de un comprobante."
+      "Usa el formato: [monto] [concepto]\nO envía una foto de un comprobante.",
     );
   }
 });
@@ -338,7 +337,7 @@ bot.action("editar_concepto", async (ctx) => {
   if (gasto) {
     gasto.esperandoConcepto = true; // Marcamos que el próximo texto será el nombre
     await ctx.reply(
-      `Escribe el nombre del comercio para el gasto de $${gasto.monto}:`
+      `Escribe el nombre del comercio para el gasto de $${gasto.monto}:`,
     );
   }
   await ctx.answerCbQuery();
