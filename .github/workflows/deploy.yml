@@ -1,21 +1,30 @@
-name: CD - Deploy to Oracle
+name: CD - Deploy to Oracle (Multi-Env)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Desplegar en Oracle vía SSH
+      - name: Desplegar vía SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ~/apps/telegram-bot
-            git pull origin main
+            if [ "${{ github.ref_name }}" == "main" ]; then
+              echo "🚀 Desplegando en PRODUCCIÓN..."
+              cd ~/apps/telegram-bot
+            else
+              echo "🧪 Desplegando en TESTING..."
+              cd ~/apps/telegram-bot-test
+            fi
+            
+            git fetch origin
+            git checkout ${{ github.ref_name }}
+            git pull origin ${{ github.ref_name }}
             docker compose up -d --build
             docker system prune -f
