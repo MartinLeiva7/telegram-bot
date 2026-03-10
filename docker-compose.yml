@@ -1,0 +1,13 @@
+services:
+  bot-telegram:
+    build: .
+    container_name: ${CONTAINER_NAME:-bot_prod}
+    restart: always
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    env_file:
+      - .env
+    deploy:
+      resources:
+        limits:
+          memory: 800M
