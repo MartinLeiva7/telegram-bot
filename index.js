@@ -11,7 +11,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const GOOGLE_CREDS = JSON.parse(process.env.GOOGLE_JSON_KEY);
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
-const PORT = process.env.PORT || 8000; // Render asigna el puerto automáticamente
+const HOST_PORT = process.env.HOST_PORT || 8000; // Render asigna el puerto automáticamente
 
 // 2. Primero definimos la Autenticación
 const serviceAccountAuth = new JWT({
@@ -36,7 +36,7 @@ const CATEGORIES = [
   ],
   [
     { text: "🍕 Comida/Ocio", callback_data: "cat_Comida-Ocio" },
-    { text: "🚗 Nafta/Auto", callback_data: "cat_Transporte" },
+    { text: "🚗 Nafta/Auto", callback_data: "cat_TransHOST_PORTe" },
   ],
   [
     { text: "🤵 Personal", callback_data: "cat_Personal" },
@@ -198,30 +198,32 @@ bot.action("cancelar", async (ctx) => {
 
 bot.on("photo", async (ctx) => {
   try {
-    await ctx.reply("🔍 Analizando comprobante y subiendo imagen...");
+    await ctx.reply("🔍 Analizando comprobante...");
 
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     const fileLink = await ctx.telegram.getFileLink(fileId);
 
-    // --- NUEVO: Subida a ImgBB ---
-    let finalImageUrl = "Sin link";
-    try {
-      // ImgBB permite subir enviando directamente la URL de la imagen
-      const imgbbResponse = await axios.get("https://api.imgbb.com/1/upload", {
-        params: {
-          key: IMGBB_API_KEY,
-          image: fileLink.href, // Le pasamos el link de Telegram
-        },
-      });
-      finalImageUrl = imgbbResponse.data.data.url;
-      console.log("Imagen subida a ImgBB exitosamente:", finalImageUrl);
-    } catch (err) {
-      console.error(
-        "Error subiendo a ImgBB:",
-        err.response?.data || err.message,
-      );
-      // Si falla ImgBB, usamos el link de Telegram como backup (dura 1 hora)
-      finalImageUrl = fileLink.href;
+    let finalImageUrl = "Sin link (Test)";
+
+    // --- SUBIDA CONDICIONAL: Solo si existe la Key y no estamos en modo bypass ---
+    if (IMGBB_API_KEY && IMGBB_API_KEY !== "skip") {
+      try {
+        console.log("Subiendo a ImgBB...");
+        const imgbbResponse = await axios.get("https://api.imgbb.com/1/upload", {
+          params: {
+            key: IMGBB_API_KEY,
+            image: fileLink.href,
+          },
+        });
+        finalImageUrl = imgbbResponse.data.data.url;
+        console.log("Imagen subida exitosamente:", finalImageUrl);
+      } catch (err) {
+        console.error("Error en ImgBB, usando backup de Telegram:", err.message);
+        finalImageUrl = fileLink.href;
+      }
+    } else {
+      console.log("Modo TEST activo: Saltando subida a ImgBB.");
+      finalImageUrl = fileLink.href; // Usamos el link directo de Telegram (dura 1 hora)
     }
 
     // --- OCR para el monto (Tesseract) ---
@@ -352,6 +354,6 @@ http
     res.writeHead(200);
     res.end("Bot vivo");
   })
-  .listen(PORT, () => {
-    console.log(`Servidor de monitoreo corriendo en puerto ${PORT}`);
+  .listen(HOST_PORT, () => {
+    console.log(`Servidor de monitoreo corriendo en puerto ${HOST_PORT}`);
   });
