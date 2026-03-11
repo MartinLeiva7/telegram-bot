@@ -1,27 +1,17 @@
 const { Telegraf } = require("telegraf");
-const { GoogleSpreadsheet } = require("google-spreadsheet");
-const { JWT } = require("google-auth-library");
 const QuickChart = require("quickchart-js");
 const Tesseract = require("tesseract.js");
 const axios = require("axios");
 const http = require("http");
+// 1. Importamos la configuración del Excel desde nuestro nuevo módulo
+const { doc } = require("./src/config/excel");
 
-// 1. Cargar variables de entorno
+// 2. Cargar variables de entorno
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const SHEET_ID = process.env.SHEET_ID;
-const GOOGLE_CREDS = JSON.parse(process.env.GOOGLE_JSON_KEY);
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const HOST_PORT = process.env.HOST_PORT || 8000; // Render asigna el puerto automáticamente
 
-// 2. Primero definimos la Autenticación
-const serviceAccountAuth = new JWT({
-  email: GOOGLE_CREDS.client_email,
-  key: GOOGLE_CREDS.private_key,
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
-
-// 3. Ahora sí inicializamos Sheets y el Bot usando esa auth
-const doc = new GoogleSpreadsheet(SHEET_ID, serviceAccountAuth);
+// 3. Inicializamos el Bot
 const bot = new Telegraf(BOT_TOKEN);
 
 // 4. Categorias
@@ -342,6 +332,81 @@ bot.action("editar_concepto", async (ctx) => {
       `Escribe el nombre del comercio para el gasto de $${gasto.monto}:`,
     );
   }
+  await ctx.answerCbQuery();
+});
+
+// --- FUNCIONALIDAD: Borrar último gasto ---
+
+bot.command("borrar", async (ctx) => {
+  try {
+    await ctx.reply("🔍 Buscando el último registro...");
+    await doc.loadInfo();
+    const sheet = doc.sheetsByIndex[0];
+    const rows = await sheet.getRows();
+
+    if (rows.length === 0) {
+      return await ctx.reply("No hay gastos registrados para borrar. 🤷‍♂️");
+    }
+
+    // Obtenemos la última fila
+    const ultimaFila = rows[rows.length - 1];
+    const fecha = ultimaFila.get("Fecha");
+    const monto = ultimaFila.get("Monto");
+    const concepto = ultimaFila.get("Concepto");
+
+    // Guardamos el índice de la fila para borrarla después si confirma
+    // Usamos el número de fila real en el sheet
+    const rowNumber = ultimaFila.rowNumber;
+
+    await ctx.reply(
+      `⚠️ *¿Estás seguro de borrar este gasto?*\n\n` +
+      `📅 Fecha: ${fecha}\n` +
+      `💰 Monto: $${monto}\n` +
+      `📝 Concepto: ${concepto}`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✅ Sí, borrar", callback_data: `confirm_delete_${rowNumber}` },
+              { text: "❌ No, dejarlo", callback_data: "cancelar_borrado" }
+            ]
+          ]
+        }
+      }
+    );
+  } catch (error) {
+    console.error("Error al buscar último gasto:", error);
+    await ctx.reply("❌ Error al intentar acceder a los registros.");
+  }
+});
+
+// Callback para ejecutar el borrado real
+bot.action(/^confirm_delete_/, async (ctx) => {
+  try {
+    const rowNumber = parseInt(ctx.match.input.replace("confirm_delete_", ""));
+    await doc.loadInfo();
+    const sheet = doc.sheetsByIndex[0];
+    const rows = await sheet.getRows();
+
+    // Buscamos la fila por su número de fila
+    const filaABorrar = rows.find(r => r.rowNumber === rowNumber);
+
+    if (filaABorrar) {
+      await filaABorrar.delete();
+      await ctx.editMessageText("🗑️ Registro eliminado correctamente.");
+    } else {
+      await ctx.editMessageText("❌ No se pudo encontrar el registro. Quizás ya fue borrado.");
+    }
+  } catch (error) {
+    console.error("Error al borrar fila:", error);
+    await ctx.reply("❌ Error al intentar borrar la fila.");
+  }
+  await ctx.answerCbQuery();
+});
+
+bot.action("cancelar_borrado", async (ctx) => {
+  await ctx.editMessageText("Operación cancelada. El gasto sigue a salvo. 🙂");
   await ctx.answerCbQuery();
 });
 
