@@ -1,11 +1,14 @@
 const { Telegraf } = require("telegraf");
-const QuickChart = require("quickchart-js");
 const Tesseract = require("tesseract.js");
 const axios = require("axios");
 const http = require("http");
 // 1. Importamos la configuración del Excel desde nuestro nuevo módulo
 const { doc } = require("./src/config/excel");
-const { borrarUltimoGasto, confirmarBorrado } = require("./src/commands/borrar");
+const {
+  borrarUltimoGasto,
+  confirmarBorrado,
+} = require("./src/commands/borrar");
+const { generarResumen } = require("./src/commands/resumen");
 
 // 2. Cargar variables de entorno
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -40,10 +43,7 @@ const CATEGORIES = [
 const temporalGasto = new Map();
 
 // --- FUNCIONALIDAD: Borrar último gasto ---
-bot.command("borrar", (ctx) => {
-    console.log("¡Evento /borrar detectado en index.js!");
-    return borrarUltimoGasto(ctx);
-});
+bot.command("borrar", borrarUltimoGasto);
 
 bot.action(/^confirm_delete_/, confirmarBorrado);
 
@@ -53,113 +53,7 @@ bot.action("cancelar_borrado", async (ctx) => {
 });
 
 // Comando /resumen
-bot.command("resumen", async (ctx) => {
-  try {
-    await ctx.reply(
-      "📊 Calculando el resumen de este mes y generando gráfico...",
-    );
-
-    await doc.loadInfo();
-    const sheet = doc.sheetsByIndex[0];
-    const rows = await sheet.getRows();
-
-    const ahora = new Date();
-    const mesActual = ahora.getMonth() + 1; // Enero es 0
-    const anioActual = ahora.getFullYear();
-
-    let totalMes = 0;
-    const porCategoria = {};
-
-    rows.forEach((row) => {
-      const fechaStr = row.get("Fecha");
-      if (!fechaStr) return;
-
-      const [fechaParte] = fechaStr.split(" ");
-      const [dia, mes, anio] = fechaParte.split("/");
-
-      if (parseInt(mes) === mesActual && parseInt(anio) === anioActual) {
-        const monto = parseFloat(row.get("Monto").toString().replace(",", "."));
-        const cat = row.get("Categoria") || "Sin categoría";
-
-        if (!isNaN(monto)) {
-          totalMes += monto;
-          porCategoria[cat] = (porCategoria[cat] || 0) + monto;
-        }
-      }
-    });
-
-    if (totalMes === 0) {
-      return await ctx.reply("Aún no tienes gastos registrados este mes. 😶");
-    }
-
-    // --- Parte nueva para el gráfico ---
-    const chartLabels = Object.keys(porCategoria);
-    const chartData = Object.values(porCategoria);
-    const backgroundColors = [
-      "#FF6384",
-      "#36A2EB",
-      "#FFCE56",
-      "#4BC0C0",
-      "#9966FF",
-      "#FF9F40",
-      "#A1F0C0",
-      "#FFDDC1",
-      "#DAA06D",
-      "#7CB9E8",
-      "#CFCFC4", // Puedes agregar más colores
-    ];
-
-    const myChart = new QuickChart();
-    myChart
-      .setConfig({
-        type: "pie",
-        data: {
-          labels: chartLabels,
-          datasets: [
-            {
-              data: chartData,
-              backgroundColor: backgroundColors.slice(0, chartLabels.length), // Usar solo los colores necesarios
-            },
-          ],
-        },
-        options: {
-          title: {
-            display: true,
-            text: `Gastos de ${ahora.toLocaleString("es-AR", {
-              month: "long",
-            })}`,
-          },
-        },
-      })
-      .setWidth(500)
-      .setHeight(300)
-      .setVersion("2"); // Usar la versión 2 de Chart.js si da problemas la última
-
-    const chartUrl = await myChart.getUrl(); // <--- Sin etiquetas extra
-
-    // --- Fin de parte nueva para el gráfico ---
-
-    // Armar el mensaje de respuesta (igual que antes)
-    let mensaje = `💰 *Resumen de ${ahora.toLocaleString("es-AR", {
-      month: "long",
-    })}* 💰\n`;
-    mensaje += `----------------------------\n`;
-
-    for (const [cat, subtotal] of Object.entries(porCategoria)) {
-      mensaje += `🔹 *${cat}:* $${subtotal.toLocaleString("es-AR")}\n`;
-    }
-
-    mensaje += `----------------------------\n`;
-    mensaje += `TOTAL: *$${totalMes.toLocaleString("es-AR")}*`;
-
-    // Primero enviamos el gráfico y luego el texto
-    await ctx.replyWithPhoto(chartUrl); // <--- Enviamos la imagen del gráfico
-    await ctx.replyWithMarkdown(mensaje); // <--- Luego el texto
-  } catch (error) {
-    console.error("Error en /resumen:", error);
-    await ctx.reply("❌ Error al generar el resumen.");
-  }
-});
+bot.command("resumen", generarResumen);
 
 // En lugar de bot.on('callback_query', ...), usa esto:
 bot.action(/^cat_/, async (ctx) => {
@@ -213,16 +107,22 @@ bot.on("photo", async (ctx) => {
     if (IMGBB_API_KEY && IMGBB_API_KEY !== "skip") {
       try {
         console.log("Subiendo a ImgBB...");
-        const imgbbResponse = await axios.get("https://api.imgbb.com/1/upload", {
-          params: {
-            key: IMGBB_API_KEY,
-            image: fileLink.href,
+        const imgbbResponse = await axios.get(
+          "https://api.imgbb.com/1/upload",
+          {
+            params: {
+              key: IMGBB_API_KEY,
+              image: fileLink.href,
+            },
           },
-        });
+        );
         finalImageUrl = imgbbResponse.data.data.url;
         console.log("Imagen subida exitosamente:", finalImageUrl);
       } catch (err) {
-        console.error("Error en ImgBB, usando backup de Telegram:", err.message);
+        console.error(
+          "Error en ImgBB, usando backup de Telegram:",
+          err.message,
+        );
         finalImageUrl = fileLink.href;
       }
     } else {
