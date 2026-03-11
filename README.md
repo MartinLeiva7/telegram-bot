@@ -39,7 +39,7 @@ El proyecto ha sido refactorizado a una estructura **modular** para facilitar el
 ## 🛠️ Instalación y Configuración
 1. **Clonar repositorio**
 ```
-git clone [https://github.com/MartinLeiva7/telegram-bot.git](https://github.com/MartinLeiva7/telegram-bot.git)
+git clone https://github.com/MartinLeiva7/telegram-bot.git
 ```
 
 2. **Variables de Entorno:** Crear un archivo .env con las siguientes llaves:
@@ -61,7 +61,13 @@ docker compose up -d --build
 ```
 ## 📈 Comandos Disponibles
 
-ComandoDescripción/startInicia el bot y muestra la ayuda./resumenGenera un gráfico y desglose de gastos del mes actual./borrarBusca y permite eliminar el último gasto registrado.\[monto\] \[concepto\]Registro manual rápido (Ej: **5000** Cine).Exportar a Hojas de cálculo
+`/start` - Inicia el bot y muestra la ayuda.
+
+`/resumen` - Genera un gráfico y desglose de gastos del mes actual.
+
+`/borrar `- Busca y permite eliminar el último gasto registrado.
+
+`[monto] [concepto]` - Registro manual rápido (Ej: 5000 Cine).
 
 ## 🛡️ Notas de Desarrollo (CI/CD)
 
