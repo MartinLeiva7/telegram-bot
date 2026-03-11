@@ -37,8 +37,10 @@ El proyecto ha sido refactorizado a una estructura **modular** para facilitar el
 └── .github/          # Flujos de GitHub Actions (CI/CD)
 ```
 ## 🛠️ Instalación y Configuración
-
-### git clone [https://github.com/MartinLeiva7/telegram-bot.git](https://github.com/MartinLeiva7/telegram-bot.git)
+1. **Clonar repositorio**
+```
+git clone [https://github.com/MartinLeiva7/telegram-bot.git](https://github.com/MartinLeiva7/telegram-bot.git)
+```
 
 2. **Variables de Entorno:** Crear un archivo .env con las siguientes llaves:
 
@@ -52,8 +54,11 @@ El proyecto ha sido refactorizado a una estructura **modular** para facilitar el
 
     *   **HOST**\_PORT: Puerto para el Health Check (default: **8000**).
 
-### docker compose up -d --build
+3. **Despliegue con Docker**
 
+```
+docker compose up -d --build
+```
 ## 📈 Comandos Disponibles
 
 ComandoDescripción/startInicia el bot y muestra la ayuda./resumenGenera un gráfico y desglose de gastos del mes actual./borrarBusca y permite eliminar el último gasto registrado.\[monto\] \[concepto\]Registro manual rápido (Ej: **5000** Cine).Exportar a Hojas de cálculo
