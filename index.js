@@ -1,60 +1,34 @@
 const { Telegraf } = require("telegraf");
 const http = require("http");
-// 1. Importamos la configuración del Excel desde nuestro nuevo módulo
-const { doc } = require("./src/config/excel");
+// 1. Config & Services
+const { guardarGasto } = require("./src/services/gastos");
+const { procesarComprobante } = require("./src/services/ocr");
+
+// 2. Commands
 const {
   borrarUltimoGasto,
   confirmarBorrado,
 } = require("./src/commands/borrar");
 const { generarResumen } = require("./src/commands/resumen");
-const { procesarComprobante } = require("./src/services/ocr");
 
-// 2. Cargar variables de entorno
+// 3. Cargar variables de entorno
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const HOST_PORT = process.env.HOST_PORT || 8000; // Render asigna el puerto automáticamente
 
-// 3. Inicializamos el Bot
-const bot = new Telegraf(BOT_TOKEN);
-
 // 4. Categorias
-const CATEGORIES = [
-  [
-    { text: "🏗️ Mano de Obra", callback_data: "cat_Obra-Mano" },
-    { text: "🧱 Materiales", callback_data: "cat_Obra-Mat" },
-  ],
-  [
-    { text: "🏠 Alquiler/Serv", callback_data: "cat_Vivienda" },
-    { text: "🛒 Super/Carne", callback_data: "cat_Supermercado" },
-  ],
-  [
-    { text: "🍕 Comida/Ocio", callback_data: "cat_Comida-Ocio" },
-    { text: "🚗 Nafta/Auto", callback_data: "cat_TransHOST_PORTe" },
-  ],
-  [
-    { text: "🤵 Personal", callback_data: "cat_Personal" },
-    { text: "❓ Otros", callback_data: "cat_Otros" },
-  ],
-  [{ text: "❌ No es correcto", callback_data: "cancelar" }],
-];
+const { CATEGORIES } = require("./src/constants/buttons");
 
-// Objeto para guardar temporalmente el gasto antes de elegir categoría
+// 5. Inicializar bot
+const bot = new Telegraf(BOT_TOKEN);
 const temporalGasto = new Map();
 
-// --- FUNCIONALIDAD: Borrar último gasto ---
+// --- COMANDOS ---
+bot.command("resumen", generarResumen);
 bot.command("borrar", borrarUltimoGasto);
 
+// --- ACCIONES (Botones) ---
 bot.action(/^confirm_delete_/, confirmarBorrado);
-
-bot.action("cancelar_borrado", async (ctx) => {
-  await ctx.editMessageText("Operación cancelada. El gasto sigue a salvo. 🙂");
-  await ctx.answerCbQuery();
-});
-
-// Comando /resumen
-bot.command("resumen", generarResumen);
-
-// En lugar de bot.on('callback_query', ...), usa esto:
 bot.action(/^cat_/, async (ctx) => {
   const userId = ctx.from.id;
   const categoria = ctx.match.input.replace("cat_", "");
@@ -62,23 +36,12 @@ bot.action(/^cat_/, async (ctx) => {
 
   if (gasto) {
     try {
-      await doc.loadInfo();
-      const sheet = doc.sheetsByIndex[0];
-      await sheet.addRow({
-        Fecha: new Date().toLocaleString("es-AR", {
-          timeZone: "America/Argentina/Buenos_Aires",
-        }),
-        Monto: gasto.monto,
-        Concepto: gasto.concepto,
-        Categoria: categoria,
-        Link_Foto: gasto.driveUrl, // <-- Añade esta columna a tu Excel si quieres ver el link
-      });
+      await guardarGasto({ ...gasto, categoria }); // Usamos el servicio
       temporalGasto.delete(userId);
-      await ctx.editMessageText(
-        `✅ Guardado: $${gasto.monto} en ${categoria} (${gasto.concepto})`,
-      );
+      await ctx.editMessageText(`✅ Guardado: $${parseFloat(gasto.monto).toLocaleString("es-AR")} en ${categoria} (${gasto.concepto})`);
     } catch (error) {
-      await ctx.reply("❌ Error al guardar.");
+      console.error("Error al guardar:", error);
+      await ctx.reply("❌ Error al guardar en la planilla.");
     }
   }
   await ctx.answerCbQuery();
@@ -105,8 +68,8 @@ bot.on("photo", async (ctx) => {
 
     // Llamamos al servicio (pasándole el link y la key)
     const { montoFinal, finalImageUrl } = await procesarComprobante(
-      fileLink.href, 
-      IMGBB_API_KEY
+      fileLink.href,
+      IMGBB_API_KEY,
     );
 
     if (montoFinal) {
@@ -126,10 +89,12 @@ bot.on("photo", async (ctx) => {
               [{ text: "❌ No, escribir manual", callback_data: "cancelar" }],
             ],
           },
-        }
+        },
       );
     } else {
-      await ctx.reply("No detecté el monto. Por favor, escribe: [monto] [concepto]");
+      await ctx.reply(
+        "No detecté el monto. Por favor, escribe: [monto] [concepto]",
+      );
     }
   } catch (error) {
     console.error("Error general en photo:", error);
