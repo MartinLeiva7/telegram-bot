@@ -38,7 +38,7 @@ El proyecto ha sido refactorizado a una estructura **modular** para facilitar el
 ```
 ## 🛠️ Instalación y Configuración
 
-## Bashgit clone [https://github.com/MartinLeiva7/telegram-bot.git](https://github.com/MartinLeiva7/telegram-bot.git)
+### git clone [https://github.com/MartinLeiva7/telegram-bot.git](https://github.com/MartinLeiva7/telegram-bot.git)
 
 2. **Variables de Entorno:** Crear un archivo .env con las siguientes llaves:
 
@@ -52,7 +52,7 @@ El proyecto ha sido refactorizado a una estructura **modular** para facilitar el
 
     *   **HOST**\_PORT: Puerto para el Health Check (default: **8000**).
 
-## Bashdocker compose up -d --build
+### docker compose up -d --build
 
 ## 📈 Comandos Disponibles
 
@@ -67,4 +67,3 @@ Este repositorio cuenta con un flujo de **Integración Continua**:
 - Los cambios en la rama main se despliegan en el **Ambiente de Producción** (Puerto **8000**).
 
 **Desarrollado por** [**Martin Leiva**](https://[www.google.com/search?q=https://github.com/MartinLeiva7&authuser=1](https://www.google.com/search?q=https://github.com/MartinLeiva7&authuser=1)) 🚀
-```
