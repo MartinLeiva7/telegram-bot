@@ -1,6 +1,4 @@
 const { Telegraf } = require("telegraf");
-const Tesseract = require("tesseract.js");
-const axios = require("axios");
 const http = require("http");
 // 1. Importamos la configuración del Excel desde nuestro nuevo módulo
 const { doc } = require("./src/config/excel");
@@ -9,6 +7,7 @@ const {
   confirmarBorrado,
 } = require("./src/commands/borrar");
 const { generarResumen } = require("./src/commands/resumen");
+const { procesarComprobante } = require("./src/services/ocr");
 
 // 2. Cargar variables de entorno
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -95,60 +94,25 @@ bot.action("cancelar", async (ctx) => {
 });
 
 bot.on("photo", async (ctx) => {
+  const user = ctx.from.username || ctx.from.id;
+  console.log(`[PHOTO] Procesando imagen de @${user}`);
+
   try {
     await ctx.reply("🔍 Analizando comprobante...");
 
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     const fileLink = await ctx.telegram.getFileLink(fileId);
 
-    let finalImageUrl = "Sin link (Test)";
-
-    // --- SUBIDA CONDICIONAL: Solo si existe la Key y no estamos en modo bypass ---
-    if (IMGBB_API_KEY && IMGBB_API_KEY !== "skip") {
-      try {
-        console.log("Subiendo a ImgBB...");
-        const imgbbResponse = await axios.get(
-          "https://api.imgbb.com/1/upload",
-          {
-            params: {
-              key: IMGBB_API_KEY,
-              image: fileLink.href,
-            },
-          },
-        );
-        finalImageUrl = imgbbResponse.data.data.url;
-        console.log("Imagen subida exitosamente:", finalImageUrl);
-      } catch (err) {
-        console.error(
-          "Error en ImgBB, usando backup de Telegram:",
-          err.message,
-        );
-        finalImageUrl = fileLink.href;
-      }
-    } else {
-      console.log("Modo TEST activo: Saltando subida a ImgBB.");
-      finalImageUrl = fileLink.href; // Usamos el link directo de Telegram (dura 1 hora)
-    }
-
-    // --- OCR para el monto (Tesseract) ---
-    const {
-      data: { text },
-    } = await Tesseract.recognize(fileLink.href, "spa+eng");
-
-    const todosLosNumeros = text.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})?/g) || [];
-    const candidatos = todosLosNumeros
-      .map((n) => n.replace(/\./g, "").replace(",", "."))
-      .map((n) => parseFloat(n))
-      .filter((n) => n > 100 && n < 1000000);
-
-    candidatos.sort((a, b) => b - a);
-    const montoFinal = candidatos[0];
+    // Llamamos al servicio (pasándole el link y la key)
+    const { montoFinal, finalImageUrl } = await procesarComprobante(
+      fileLink.href, 
+      IMGBB_API_KEY
+    );
 
     if (montoFinal) {
-      // Guardamos los datos temporalmente
       temporalGasto.set(ctx.from.id, {
         monto: montoFinal.toString(),
-        driveUrl: finalImageUrl, // Aunque la variable se llame driveUrl, ahora guarda el de ImgBB
+        driveUrl: finalImageUrl,
         esperandoConcepto: false,
       });
 
@@ -162,12 +126,10 @@ bot.on("photo", async (ctx) => {
               [{ text: "❌ No, escribir manual", callback_data: "cancelar" }],
             ],
           },
-        },
+        }
       );
     } else {
-      await ctx.reply(
-        "No detecté el monto. Por favor, escribe: [monto] [concepto]",
-      );
+      await ctx.reply("No detecté el monto. Por favor, escribe: [monto] [concepto]");
     }
   } catch (error) {
     console.error("Error general en photo:", error);
