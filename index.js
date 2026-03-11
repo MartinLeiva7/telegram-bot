@@ -39,6 +39,19 @@ const CATEGORIES = [
 // Objeto para guardar temporalmente el gasto antes de elegir categoría
 const temporalGasto = new Map();
 
+// --- FUNCIONALIDAD: Borrar último gasto ---
+bot.command("borrar", (ctx) => {
+    console.log("¡Evento /borrar detectado en index.js!");
+    return borrarUltimoGasto(ctx);
+});
+
+bot.action(/^confirm_delete_/, confirmarBorrado);
+
+bot.action("cancelar_borrado", async (ctx) => {
+  await ctx.editMessageText("Operación cancelada. El gasto sigue a salvo. 🙂");
+  await ctx.answerCbQuery();
+});
+
 // Comando /resumen
 bot.command("resumen", async (ctx) => {
   try {
@@ -333,16 +346,6 @@ bot.action("editar_concepto", async (ctx) => {
       `Escribe el nombre del comercio para el gasto de $${gasto.monto}:`,
     );
   }
-  await ctx.answerCbQuery();
-});
-
-// --- FUNCIONALIDAD: Borrar último gasto ---
-bot.command("borrar", borrarUltimoGasto);
-
-bot.action(/^confirm_delete_/, confirmarBorrado);
-
-bot.action("cancelar_borrado", async (ctx) => {
-  await ctx.editMessageText("Operación cancelada. El gasto sigue a salvo. 🙂");
   await ctx.answerCbQuery();
 });
 
