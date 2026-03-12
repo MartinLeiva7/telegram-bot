@@ -7,7 +7,30 @@ services:
       - "${HOST_PORT:-8000}:8000"
     env_file:
       - .env
+    environment:
+      # Esta URL le dice al bot dónde está la base de datos
+      - DATABASE_URL=postgresql://user_admin:pass_segura@db_gastos:5432/db_gastos
+    depends_on:
+      - db_gastos
     deploy:
       resources:
         limits:
-          memory: 800M
+          memory: 400M # Bajamos un poco el límite del bot para darle aire a la DB
+
+  db_gastos:
+    image: postgres:15-alpine # La versión 'alpine' es mucho más liviana (ideal para Oracle)
+    container_name: ${DB_CONTAINER_NAME:-postgres_prod}
+    restart: always
+    environment:
+      POSTGRES_USER: user_admin
+      POSTGRES_PASSWORD: pass_segura
+      POSTGRES_DB: db_gastos
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 300M # Postgres para uso personal corre perfecto con 300MB
+
+volumes:
+  pg_data: # Aquí es donde se guardarán tus gastos físicamente
