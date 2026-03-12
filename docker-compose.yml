@@ -9,7 +9,7 @@ services:
       - .env
     environment:
       # Esta URL le dice al bot dónde está la base de datos
-      - DATABASE_URL=postgresql://user_admin:pass_segura@db_gastos:5432/db_gastos
+      - DATABASE_URL=${DATABASE_URL}
     depends_on:
       - db_gastos
     deploy:
@@ -22,9 +22,9 @@ services:
     container_name: ${DB_CONTAINER_NAME:-postgres_prod}
     restart: always
     environment:
-      POSTGRES_USER: user_admin
-      POSTGRES_PASSWORD: pass_segura
-      POSTGRES_DB: db_gastos
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
       - pg_data:/var/lib/postgresql/data
     deploy:
