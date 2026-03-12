@@ -49,4 +49,19 @@ async function guardarGasto(datos) {
   }
 }
 
-module.exports = { guardarGasto };
+async function obtenerTotalGastos() {
+  try {
+    const query = "SELECT SUM(monto) as total FROM gastos";
+    const resultado = await db.query(query);
+
+    // El resultado de SUM puede venir como string o null si está vacía
+    const total = resultado.rows[0].total || 0;
+    return parseFloat(total).toFixed(2);
+  } catch (error) {
+    console.error("Error al obtener el total de la DB:", error);
+    throw error;
+  }
+}
+
+// No te olvides de exportarla al final del archivo
+module.exports = { guardarGasto, obtenerTotalGastos };

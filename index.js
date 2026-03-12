@@ -1,7 +1,7 @@
 const { Telegraf } = require("telegraf");
 const http = require("http");
 // 1. Config & Services
-const { guardarGasto } = require("./src/services/gastos");
+const { guardarGasto, obtenerTotalGastos } = require("./src/services/gastos");
 const { procesarComprobante } = require("./src/services/ocr");
 
 // 2. Commands
@@ -26,6 +26,16 @@ const temporalGasto = new Map();
 // --- COMANDOS ---
 bot.command("resumen", generarResumen);
 bot.command("borrar", borrarUltimoGasto);
+bot.command("total", async (ctx) => {
+  try {
+    const total = await obtenerTotalGastos();
+    await ctx.reply(
+      `💰 El total de gastos registrados en la base de datos es: $${total}`,
+    );
+  } catch (error) {
+    await ctx.reply("❌ No pude obtener el total en este momento.");
+  }
+});
 
 // --- ACCIONES (Botones) ---
 bot.action(/^confirm_delete_/, confirmarBorrado);
@@ -33,13 +43,6 @@ bot.action(/^cat_/, async (ctx) => {
   const userId = ctx.from.id;
   const categoria = ctx.match.input.replace("cat_", "");
   const gastoEnMemoria = temporalGasto.get(userId);
-
-  // LOGS DE CONTROL
-  console.log(`[DEBUG] Click en categoría por usuario: ${userId}`);
-  console.log(
-    `[DEBUG] ¿Existe gasto en memoria?: ${gastoEnMemoria ? "SÍ" : "NO"}`,
-  );
-  if (gastoEnMemoria) console.log(`[DEBUG] Contenido:`, gastoEnMemoria);
 
   if (gastoEnMemoria) {
     try {
@@ -158,7 +161,6 @@ bot.on("text", async (ctx) => {
     const concepto = partes.slice(1).join(" ");
 
     temporalGasto.set(userId, { monto, concepto, driveUrl: "Manual" });
-    console.log(`[DEBUG] Gasto guardado temporalmente para el ID: ${userId}`);
     await ctx.reply(
       `¿Categoría para *$${parseFloat(monto).toLocaleString("es-AR")}*?`,
       {
