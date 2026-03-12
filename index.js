@@ -32,17 +32,34 @@ bot.action(/^confirm_delete_/, confirmarBorrado);
 bot.action(/^cat_/, async (ctx) => {
   const userId = ctx.from.id;
   const categoria = ctx.match.input.replace("cat_", "");
-  const gasto = temporalGasto.get(userId);
+  const gastoEnMemoria = temporalGasto.get(userId);
 
-  if (gasto) {
+  // LOGS DE CONTROL
+  console.log(`[DEBUG] Click en categoría por usuario: ${userId}`);
+  console.log(
+    `[DEBUG] ¿Existe gasto en memoria?: ${gastoEnMemoria ? "SÍ" : "NO"}`,
+  );
+  if (gastoEnMemoria) console.log(`[DEBUG] Contenido:`, gastoEnMemoria);
+
+  if (gastoEnMemoria) {
     try {
-      await guardarGasto({ ...gasto, categoria }); // Usamos el servicio
+      await guardarGasto({
+        userId,
+        categoria,
+        gasto: gastoEnMemoria,
+      });
       temporalGasto.delete(userId);
-      await ctx.editMessageText(`✅ Guardado: $${parseFloat(gasto.monto).toLocaleString("es-AR")} en ${categoria} (${gasto.concepto})`);
+      await ctx.editMessageText(
+        `✅ Guardado en DB y Sheets: $${gastoEnMemoria.monto} (${categoria})`,
+      );
     } catch (error) {
       console.error("Error al guardar:", error);
-      await ctx.reply("❌ Error al guardar en la planilla.");
+      await ctx.reply("❌ Error al procesar el guardado.");
     }
+  } else {
+    await ctx.reply(
+      "No encontré el gasto original. Por favor, escribilo de nuevo.",
+    );
   }
   await ctx.answerCbQuery();
 });
@@ -141,7 +158,7 @@ bot.on("text", async (ctx) => {
     const concepto = partes.slice(1).join(" ");
 
     temporalGasto.set(userId, { monto, concepto, driveUrl: "Manual" });
-
+    console.log(`[DEBUG] Gasto guardado temporalmente para el ID: ${userId}`);
     await ctx.reply(
       `¿Categoría para *$${parseFloat(monto).toLocaleString("es-AR")}*?`,
       {
